@@ -23,6 +23,22 @@ RUN_COMMAND_TOOL = {
     },
 }
 
+# Used by the evaluator's research phase — runs on the orchestrator host (the VM),
+# NOT inside the attacker container. Intended for CVE lookups, GitHub searches, etc.
+HOST_RUN_TOOL = {
+    "name": "host_run",
+    "description": (
+        "Run a shell command on the lab host (the VM) for RESEARCH ONLY — curl CVE "
+        "databases, search GitHub for PoC repos, look up version ranges. Read-only "
+        "information gathering; do not modify files or start background processes."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {"command": {"type": "string", "description": "shell command (curl/grep/cat)"}},
+        "required": ["command"],
+    },
+}
+
 
 @dataclass
 class AgentResult:
@@ -132,8 +148,12 @@ def complete(cl, model: str, max_tokens: int, system: str, user: str) -> str:
 
 def agent_loop(cl, model: str, max_tokens: int, system: str, user: str,
                runner, max_steps: int,
-               on_step: Optional[Callable] = None) -> AgentResult:
-    """Tool-use loop. The model proposes run_command calls; we execute and feed back.
+               on_step: Optional[Callable] = None,
+               tool: Optional[dict] = None) -> AgentResult:
+    """Tool-use loop. The model proposes tool calls; we execute and feed back.
+
+    `tool` defaults to RUN_COMMAND_TOOL (attacker container). Pass HOST_RUN_TOOL +
+    a HostRunner to give the evaluator a research loop against the VM host instead.
 
     Once the step budget is hit we drop the tool so the model must conclude in text.
 
@@ -142,8 +162,10 @@ def agent_loop(cl, model: str, max_tokens: int, system: str, user: str,
     cache reads are ~10x cheaper, so a long multi-step episode reprocesses its history at a
     fraction of the cost (and `_Budget` prices the cache tokens accordingly).
     """
+    active_tool = tool or RUN_COMMAND_TOOL
+    tool_name = active_tool["name"]
     system_param = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
-    tools_param = [dict(RUN_COMMAND_TOOL, cache_control={"type": "ephemeral"})]
+    tools_param = [dict(active_tool, cache_control={"type": "ephemeral"})]
     messages = [{"role": "user", "content": [{"type": "text", "text": user}]}]
     steps = 0
     cached_block = None  # the message block currently holding the moving cache breakpoint
@@ -165,7 +187,7 @@ def agent_loop(cl, model: str, max_tokens: int, system: str, user: str,
         if resp.stop_reason == "tool_use":
             results = []
             for b in resp.content:
-                if getattr(b, "type", None) == "tool_use" and b.name == "run_command":
+                if getattr(b, "type", None) == "tool_use" and b.name == tool_name:
                     cmd = b.input.get("command", "") if isinstance(b.input, dict) else ""
                     res = runner.run(cmd)
                     steps += 1
@@ -182,14 +204,27 @@ def agent_loop(cl, model: str, max_tokens: int, system: str, user: str,
 
 
 def parse_json_tail(text: str) -> dict:
-    """Extract the last JSON object from a model's text output. {} on failure."""
-    matches = re.findall(r"\{(?:[^{}]|\{[^{}]*\})*\}", text, re.DOTALL)
-    for chunk in reversed(matches):
+    """Extract the last top-level JSON object from model output. Handles arbitrary nesting.
+
+    Uses raw_decode so deeply nested structures (ranked items with sub-dicts, escape_chain
+    items with curly-brace text, etc.) parse correctly. Jumps past each parsed object so
+    only top-level objects are considered; returns the last one found.
+    """
+    decoder = json.JSONDecoder()
+    result: dict = {}
+    i = 0
+    while i < len(text):
+        pos = text.find("{", i)
+        if pos == -1:
+            break
         try:
-            return json.loads(chunk)
+            obj, end = decoder.raw_decode(text, pos)
+            if isinstance(obj, dict):
+                result = obj
+            i = end  # jump past the whole parsed object — skips inner {…} blocks
         except json.JSONDecodeError:
-            continue
-    return {}
+            i = pos + 1
+    return result
 
 
 def tagged(text: str, tag: str) -> Optional[str]:

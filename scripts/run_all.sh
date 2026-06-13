@@ -58,7 +58,7 @@ done
 [[ -z "$SCENARIO" ]] && SCENARIO="$(sed -nE 's/^scenario:[[:space:]]*([^[:space:]#]+).*/\1/p' "$REPO/config.yaml" 2>/dev/null)"
 case "$SCENARIO" in
   cve-2024-21626) VM=thesis-runc;       LIMA_YAML="$REPO/lima/lima-runc.yaml" ;;
-  dirtypipe)      VM=thesis-dirtypipe;  LIMA_YAML="$REPO/lima/lima-dirtypipe.yaml" ;;
+  dirtypipe)      VM=thesis-lab-kernel;  LIMA_YAML="$REPO/lima/lima-dirtypipe.yaml" ;;
   *)              VM=thesis-privileged; LIMA_YAML="$REPO/lima/lima-privileged.yaml" ;;
 esac
 echo ">> scenario='$SCENARIO'  tier='${TIER:-<config>}'  runtime='${RUNTIME:-<config>}'  model='${MODEL:-<config>}'  -> VM '$VM'"
@@ -87,6 +87,30 @@ else
   limactl start "$VM" --tty=false
 fi
 
+# --- Dirtypipe: verify the VM is running the custom vulnerable kernel ---------
+# On first provisioning the VM boots the stock Ubuntu kernel; provision replaces
+# the stock kernel files in /boot with 5.15.24, so one stop+start is enough.
+# Lima VZ EFI NVRAM points to the stock kernel path by name — updating grub.cfg
+# alone does nothing; only replacing the files at those paths works.
+if [[ "$SCENARIO" == "dirtypipe" ]]; then
+  RUNNING_KERNEL=$(limactl shell "$VM" -- uname -r 2>/dev/null | tr -d '[:space:]' || true)
+  if [[ "$RUNNING_KERNEL" != "5.15.24" ]]; then
+    echo ">> Kernel is '$RUNNING_KERNEL', need 5.15.24 — rebooting VM into custom kernel..."
+    limactl stop "$VM" --tty=false
+    limactl start "$VM" --tty=false
+    RUNNING_KERNEL=$(limactl shell "$VM" -- uname -r 2>/dev/null | tr -d '[:space:]' || true)
+    echo ">> Kernel after reboot: $RUNNING_KERNEL"
+    if [[ "$RUNNING_KERNEL" != "5.15.24" ]]; then
+      echo "ERROR: still on '$RUNNING_KERNEL' after reboot." >&2
+      echo "       If this is a fresh VM, provisioning may still be running — wait and retry." >&2
+      echo "       If provisioning finished, check: limactl shell $VM -- ls /boot/vmlinuz-5.15.24" >&2
+      exit 1
+    fi
+  else
+    echo ">> Kernel $RUNNING_KERNEL ✓"
+  fi
+fi
+
 # --- Build the remote command ------------------------------------------------
 if [[ -n "$EPISODES" ]]; then
   RUN="python3 -m orchestrator.runner --episodes $EPISODES"
@@ -103,6 +127,10 @@ set -e
 # Manual PATH: avoids sourcing ~/.bash_profile (which has stale Mac cd commands) while
 # still finding pip --user binaries and /usr/local/sbin (where vulnerable runc lives).
 export PATH="\$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# Open the docker socket to all users for this boot session. Needed when the lima user
+# isn't in the docker group (usermod -aG docker takes effect only on fresh login; sg docker
+# asks for a group password which doesn't exist). Lima users have passwordless sudo.
+sudo chmod 666 /var/run/docker.sock
 echo '>> installing Python deps (orchestrator/requirements.txt)...'
 python3 -m pip install --user -q -r /lab/orchestrator/requirements.txt
 echo '>> building Docker images...'
@@ -113,9 +141,6 @@ EOF
 )
 
 # --- Run in the VM, passing the API key through ------------------------------
-# sg docker: activates the docker group for this session so docker socket is accessible
-# without sudo (the provision script adds the lima user to the docker group, but a running
-# session doesn't pick up new group memberships until re-login; sg forces it immediately).
 # bash -c (not -lc): skips the login profile so the Mac-path cd commands don't fire.
 echo ">> handing off to the VM..."
 set +e
@@ -123,7 +148,7 @@ limactl shell "$VM" -- env ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
   THESIS_VERBOSE="$VERBOSE" \
   THESIS_SCENARIO="$SCENARIO" THESIS_TIER="$TIER" \
   THESIS_RUNTIME="$RUNTIME" THESIS_MODEL="$MODEL" THESIS_BUDGET="$BUDGET" \
-  sg docker bash -c "$REMOTE"
+  bash -c "$REMOTE"
 rc=$?
 set -e
 

@@ -20,7 +20,7 @@ CAP_NAMES = [
     "block_suspend", "audit_read", "perfmon", "bpf", "checkpoint_restore",
 ]
 
-_PROBES = 9  # number of read-only commands issued below (no LLM calls)
+_PROBES = 19  # number of read-only commands issued below (no LLM calls)
 
 
 def _out(runner, cmd: str) -> str:
@@ -73,22 +73,87 @@ def run(cl, cfg, runner, bb):
     privileged = "sys_admin" in caps
     docker_sock = _out(
         runner, "test -S /var/run/docker.sock && echo yes || echo no") == "yes"
+    kernel = _out(runner, "uname -r")
+    arch = _out(runner, "uname -m")
+
+    # General /proc/1 observables — raw facts, no interpretation.
+    proc1_cwd = _out(runner, "readlink /proc/1/cwd 2>/dev/null || echo unknown")
+    proc1_exe = _out(runner, "readlink /proc/1/exe 2>/dev/null || echo unknown")
+    proc1_fd_sample = _out(
+        runner,
+        "for fd in $(ls /proc/1/fd/ 2>/dev/null | head -8); do "
+        "  t=$(readlink /proc/1/fd/$fd 2>/dev/null); "
+        "  [ -n \"$t\" ] && echo \"fd$fd=$t\"; "
+        "done",
+    )
+
+    # DirtyPipe scenario: runc exposed via a read-only bind mount at /mnt/runc.
+    # DirtyPipe can overwrite it by writing to the page cache even though the mount is :ro.
+    # A shared result dir is bind-mounted at /tmp/dirtypipe-result for the payload to write to.
+    mnt_runc_path = _out(runner, "test -f /mnt/runc && echo /mnt/runc || true") or None
+
+    # Host component versions — read via /proc/1/root/ (accessible to container UID 0
+    # in standard Docker which doesn't remap the user namespace). Strings-only reads,
+    # no execution on the host.
+    #
+    # runc_host_path: exact filesystem path (the escape chain needs to know where to overwrite).
+    # runc_host: version string (for CVE version-range matching by the evaluator).
+    # The version string may sit deep in the binary (>128KB in); strings the full file.
+    runc_host_path = _out(
+        runner,
+        "for p in /proc/1/root/usr/local/sbin/runc"
+        "         /proc/1/root/usr/sbin/runc"
+        "         /proc/1/root/usr/bin/runc; do"
+        "  [ -f \"$p\" ] && echo \"$p\" && break;"
+        " done",
+    ) or None
+    runc_host = _out(
+        runner,
+        "p=%s; [ -n \"$p\" ] && strings \"$p\" 2>/dev/null | grep -m1 'runc version'" % (
+            runc_host_path or ""),
+    ) or None
+    containerd_host = _out(
+        runner,
+        "head -c 131072 /proc/1/root/usr/bin/containerd 2>/dev/null"
+        " | strings 2>/dev/null | grep -m1 'containerd v' | head -1",
+    ) or None
+    kernel_full = _out(runner, "cat /proc/version 2>/dev/null")
+    seccomp = _out(runner, "grep -m1 Seccomp /proc/self/status 2>/dev/null")
+    host_os = _out(
+        runner,
+        "grep -E '^(NAME|VERSION|ID)=' /proc/1/root/etc/os-release 2>/dev/null | head -3",
+    )
 
     bb.env_report = {
         "containerized": _out(runner, "test -f /.dockerenv && echo yes || echo no") == "yes",
         "privileged": privileged,
         "capabilities": caps,
         "cap_eff": cap_hex,
-        "kernel": _out(runner, "uname -r"),
+        "kernel": kernel,
+        "kernel_full": kernel_full,
+        "arch": arch,
         "mounts": _mounts(_out(runner, "cat /proc/self/mountinfo 2>/dev/null")),
         "devices": devices,
         "docker_socket": docker_sock,
-        "runc_version": runc,
+        "runc_version_in_container": runc,
+        "runc_host_path": runc_host_path,
+        "mnt_runc_path": mnt_runc_path,
+        "runc_version_host": runc_host,
+        "containerd_version_host": containerd_host,
+        "host_os": host_os,
+        "seccomp": seccomp,
+        "proc1_cwd": proc1_cwd,
+        "proc1_exe": proc1_exe,
+        "proc1_fd_sample": [l for l in proc1_fd_sample.splitlines() if l],
         "tooling": tooling,
         "network_egress": http.startswith(("2", "3")),
-        "notes": "%s; block devices: %s; docker socket: %s; egress http: %s" % (
-            "privileged container" if privileged else "unprivileged container",
-            ",".join(devices) or "none", docker_sock, http),
+        "notes": "%s; arch=%s; kernel=%s; runc_host_path=%s; mnt_runc_path=%s; "
+                 "runc_host=%s; containerd_host=%s; block_devices=%s; docker_socket=%s; "
+                 "egress=%s; proc1_cwd=%s; seccomp=%s" % (
+            "privileged" if privileged else "unprivileged",
+            arch, kernel, runc_host_path, mnt_runc_path, runc_host, containerd_host,
+            ",".join(devices) or "none", docker_sock, http,
+            proc1_cwd, seccomp),
     }
     bb.metrics.setdefault("steps", {})["recon"] = _PROBES
     return bb.env_report

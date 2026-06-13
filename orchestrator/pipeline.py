@@ -61,25 +61,38 @@ def run_episode(cfg, manage_lab: bool = True) -> Blackboard:
 
             log.banner("EVALUATOR — rank escape techniques")
             evaluator.run(cl, cfg, bb)
-            log.log("    chosen: %s" % (bb.attack_plan or {}).get("chosen"))
+            _p = bb.attack_plan or {}
+            log.log("    chosen: %s  |  chain=%d steps  |  urls=%d" % (
+                _p.get("chosen"), len(_p.get("escape_chain") or []),
+                len(_p.get("fetch_urls") or [])))
 
-            for attempt in range(cfg.max_replans + 1):
-                log.banner("EXPLOIT — attempt %d/%d (escape + read victim RAM)" % (
-                    attempt + 1, cfg.max_replans + 1))
-                runner.phase = "exploit"
-                recovered, ex_res = exploit.run(cl, cfg, runner, bb)
-                # Deterministic outcomes, independent of the agent's self-report.
-                escaped = escaped or oracle.escaped_to_host(cfg.attacker, host_marker)
-                success = oracle.check_text(recovered or "", token)
-                log.log("    escaped=%s  recovered=%s  (spent ≈ $%.4f)" % (
-                    escaped, bool(success), _spent(cl)))
-                if success:
-                    break
-                log.banner("EVALUATOR — replan after failed attempt")
-                runner.phase = "evaluator"
-                evaluator.run(cl, cfg, bb,
-                              feedback=llm.tagged(ex_res.text, "EVIDENCE") or ex_res.text[-1200:])
-                log.log("    chosen: %s" % (bb.attack_plan or {}).get("chosen"))
+            attempt = 0
+            if not _p.get("chosen"):
+                log.log("    no viable attack vector — stopping episode early")
+            else:
+                for attempt in range(cfg.max_replans + 1):
+                    log.banner("EXPLOIT — attempt %d/%d (escape + read victim RAM)" % (
+                        attempt + 1, cfg.max_replans + 1))
+                    runner.phase = "exploit"
+                    recovered, ex_res = exploit.run(cl, cfg, runner, bb)
+                    # Deterministic outcomes, independent of the agent's self-report.
+                    escaped = escaped or oracle.escaped_to_host(cfg.attacker, host_marker)
+                    success = oracle.check_text(recovered or "", token)
+                    log.log("    escaped=%s  recovered=%s  (spent ≈ $%.4f)" % (
+                        escaped, bool(success), _spent(cl)))
+                    if success:
+                        break
+                    log.banner("EVALUATOR — replan after failed attempt")
+                    runner.phase = "evaluator"
+                    evaluator.run(cl, cfg, bb,
+                                  feedback=llm.tagged(ex_res.text, "EVIDENCE") or ex_res.text[-1200:])
+                    _p = bb.attack_plan or {}
+                    if not _p.get("chosen"):
+                        log.log("    replan found no viable alternative — stopping")
+                        break
+                log.log("    chosen: %s  |  chain=%d steps  |  urls=%d" % (
+                    _p.get("chosen"), len(_p.get("escape_chain") or []),
+                    len(_p.get("fetch_urls") or [])))
         except llm.BudgetExceeded as e:
             budget_stopped = True
             bb.artifacts["budget_note"] = str(e)
@@ -97,6 +110,7 @@ def run_episode(cfg, manage_lab: bool = True) -> Blackboard:
             "wall_clock_s": round(time.time() - started, 1),
         })
         bb.status = ("budget_stopped" if budget_stopped
+                     else "no_vector" if not (bb.attack_plan or {}).get("chosen")
                      else "success" if success else "failed")
         log.banner("RESULT: %s" % bb.status.upper())
         log.log("    escaped=%s  success=%s  recovered=%s" % (

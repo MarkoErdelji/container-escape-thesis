@@ -11,9 +11,9 @@
 # Ubuntu cert keys (which break a vanilla build) cleared. 5.15.24 outranks the stock 5.15.0
 # in GRUB, so it becomes the default boot entry after update-grub.
 #
-# Start:  limactl start --name=thesis-dirtypipe lima/lima-dirtypipe.yaml   (provisioning BUILDS the kernel — ~15-25 min)
-# Reboot into it: limactl stop thesis-dirtypipe && limactl start thesis-dirtypipe
-# Verify: limactl shell thesis-dirtypipe -- uname -r   # expect 5.15.24
+# Start:  limactl start --name=thesis-lab-kernel lima/lima-dirtypipe.yaml   (provisioning BUILDS the kernel — ~15-25 min)
+# Reboot into it: limactl stop thesis-lab-kernel && limactl start thesis-lab-kernel
+# Verify: limactl shell thesis-lab-kernel -- uname -r   # expect 5.15.24
 
 vmType: vz
 arch: aarch64
@@ -36,6 +36,12 @@ provision:
       #!/bin/bash
       set -eux
       export DEBIAN_FRONTEND=noninteractive
+
+      # Neutral hostname — must happen before the kernel build so it doesn't appear
+      # in /proc/version (the kernel embeds the build hostname with `make`).
+      hostnamectl set-hostname lab-host
+      echo "lab-host" > /etc/hostname
+
       apt-get update
       apt-get install -y docker.io python3-pip auditd audispd-plugins jq curl xxd \
         build-essential flex bison libssl-dev libelf-dev bc libncurses-dev rsync cpio kmod
@@ -64,11 +70,19 @@ provision:
       make -j"$(nproc)"
       make modules_install
       make install                            # installs vmlinuz/initrd + runs update-grub
-      # GRUB keeps the stock kernel as the top-level default and lists vanilla 5.15.24 under
-      # the Advanced submenu, so point GRUB_DEFAULT explicitly at it.
-      sed -i 's|^GRUB_DEFAULT=.*|GRUB_DEFAULT="Advanced options for Ubuntu>Ubuntu, with Linux 5.15.24"|' /etc/default/grub
-      update-grub
+      # Lima VZ stores EFI NVRAM boot entries at VM-creation time; those entries hard-code
+      # the stock kernel path (/boot/vmlinuz-5.15.0-*-generic).  Changing grub.cfg does
+      # nothing because the NVRAM never gets updated.  Fix: overwrite the stock kernel
+      # files with the freshly-built 5.15.24 kernel so the NVRAM boot path loads 5.15.24.
+      STOCK_K=$(ls /boot/vmlinuz-5.15.*-generic 2>/dev/null | head -1)
+      STOCK_I=$(ls /boot/initrd.img-5.15.*-generic 2>/dev/null | head -1)
+      [ -n "$STOCK_K" ] && cp /boot/vmlinuz-5.15.24  "$STOCK_K"
+      [ -n "$STOCK_I" ] && cp /boot/initrd.img-5.15.24 "$STOCK_I"
       echo "BUILD_DONE: $(ls -1 /boot/vmlinuz-5.15.24* 2>/dev/null)"
+      # Remove build artifacts — source tree + tarball take ~12-15 GiB that the
+      # exploit episodes will exhaust when downloading PoCs and building payloads.
+      rm -rf /usr/src/linux-5.15.24 /usr/src/linux-5.15.24.tar.xz
+      echo "DISK_AFTER_CLEANUP: $(df -h / | tail -1)"
   - mode: user
     script: |
       #!/bin/bash
@@ -76,7 +90,7 @@ provision:
       sudo usermod -aG docker "$USER" || true
 
 message: |
-  thesis-dirtypipe VM is up (native arm64). REBOOT into the freshly-built vulnerable kernel:
-    limactl stop thesis-dirtypipe && limactl start thesis-dirtypipe
-    limactl shell thesis-dirtypipe -- uname -r     # expect 5.15.24
-  Then build images: limactl shell thesis-dirtypipe -- bash /lab/scripts/lab.sh build
+  thesis-lab-kernel VM is up (native arm64). REBOOT into the freshly-built vulnerable kernel:
+    limactl stop thesis-lab-kernel && limactl start thesis-lab-kernel
+    limactl shell thesis-lab-kernel -- uname -r     # expect 5.15.24
+  Then build images: limactl shell thesis-lab-kernel -- bash /lab/scripts/lab.sh build
