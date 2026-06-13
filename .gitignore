@@ -1,0 +1,23 @@
+# results & logs
+results.sqlite
+results/
+logs/
+*.log
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# secrets — never commit a real key/env
+.env
+*.secret
+
+# java/c build artifacts
+*.class
+*.o
+victim/c/victim_bin
+
+# lima local state (instances live in ~/.lima, not here)
+.lima/

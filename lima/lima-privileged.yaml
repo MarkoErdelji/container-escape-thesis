@@ -1,0 +1,52 @@
+# Lima VM for the privileged-container escape scenario (version-independent).
+# This VM IS the "host" the attacker tries to escape to. A successful escape
+# compromises only this disposable VM, never macOS.
+#
+# Start:  limactl start --name=thesis-privileged lima/lima-privileged.yaml
+# Shell:  limactl shell thesis-privileged
+# Stop/rm: limactl stop thesis-privileged && limactl delete thesis-privileged
+
+vmType: vz            # Apple Virtualization framework (no qemu-img needed on Apple Silicon)
+cpus: 2
+memory: "4GiB"
+disk: "20GiB"
+
+images:
+  - location: "https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+  - location: "https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img"
+    arch: "x86_64"
+
+# Containment: mount ONLY the project dir, read-only, as /lab. No home dir, nothing writable.
+mounts:
+  - location: "/Users/markoerdelji/Documents/thesisv2"
+    mountPoint: "/lab"
+    writable: false
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get install -y docker.io auditd audispd-plugins jq
+      systemctl enable --now docker
+      systemctl enable --now auditd
+      # Paper's audit rule (process lifecycle) + file opens for /proc/*/mem cross-check.
+      cat > /etc/audit/rules.d/thesis.rules <<'EOF'
+      -a always,exit -F arch=b64 -S fork -S vfork -S clone -S execve -k thesis_proc
+      -a always,exit -F arch=b64 -S openat -F dir=/proc -F perm=r -k thesis_procmem
+      EOF
+      augenrules --load || auditctl -R /etc/audit/rules.d/thesis.rules || true
+  - mode: user
+    script: |
+      #!/bin/bash
+      set -eux
+      # convenience: let the default user run docker without sudo
+      sudo usermod -aG docker "$USER" || true
+
+message: |
+  thesis-privileged VM is up.
+  Build images and bring up the lab with:
+    limactl shell thesis-privileged -- bash /lab/scripts/lab.sh up c

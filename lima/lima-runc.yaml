@@ -1,0 +1,72 @@
+# Lima VM for the runc / CVE-2024-21626 (Leaky Vessels) escape scenario.
+# This VM IS the "host" the attacker tries to escape to. A successful escape
+# compromises only this disposable VM, never macOS.
+#
+# It runs a deliberately VULNERABLE runc 1.1.11 (CVE-2024-21626 affects runc < 1.1.12).
+# We install the distro docker.io (a known-good docker/containerd, same as the privileged
+# VM) and just drop the old runc binary ahead of it in PATH — current docker+containerd run
+# fine against runc 1.1.11. The kernel/distro otherwise don't matter (it's a runc userspace
+# bug). yama.ptrace_scope is set to 0 so a host-root process reached via the leak can read
+# another process's /proc/<pid>/mem (the common default on non-hardened hosts).
+#
+# Start:  limactl start --name=thesis-runc lima/lima-runc.yaml
+# Shell:  limactl shell thesis-runc
+# Stop/rm: limactl stop thesis-runc && limactl delete thesis-runc
+
+vmType: vz
+cpus: 2
+memory: "4GiB"
+disk: "20GiB"
+
+images:
+  - location: "https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+  - location: "https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-amd64.img"
+    arch: "x86_64"
+
+# Containment: mount ONLY the project dir, read-only, as /lab.
+mounts:
+  - location: "/Users/markoerdelji/Documents/thesisv2"
+    mountPoint: "/lab"
+    writable: false
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get install -y docker.io auditd audispd-plugins jq curl xxd python3-pip
+      systemctl enable --now docker
+
+      # Drop in the VULNERABLE runc 1.1.11. /usr/local/sbin is first in the service PATH, so
+      # containerd's runc shim picks it up; overwrite the distro paths too for good measure.
+      ARCH="$(dpkg --print-architecture)"   # arm64 / amd64 — matches the runc release asset
+      curl -fsSL -o /tmp/runc "https://github.com/opencontainers/runc/releases/download/v1.1.11/runc.$ARCH"
+      install -m0755 /tmp/runc /usr/local/sbin/runc
+      install -m0755 /tmp/runc /usr/local/bin/runc
+      install -m0755 /tmp/runc /usr/bin/runc
+      systemctl restart docker
+      runc --version | head -1   # must report 1.1.11
+
+      # Permissive ptrace so a host-root process (reached via the leak) can read sibling RAM.
+      echo 'kernel.yama.ptrace_scope = 0' > /etc/sysctl.d/99-thesis-ptrace.conf
+      sysctl --system
+
+      systemctl enable --now auditd
+      cat > /etc/audit/rules.d/thesis.rules <<'EOF'
+      -a always,exit -F arch=b64 -S fork -S vfork -S clone -S execve -k thesis_proc
+      -a always,exit -F arch=b64 -S openat -F dir=/proc -F perm=r -k thesis_procmem
+      EOF
+      augenrules --load || auditctl -R /etc/audit/rules.d/thesis.rules || true
+  - mode: user
+    script: |
+      #!/bin/bash
+      set -eux
+      sudo usermod -aG docker "$USER" || true
+
+message: |
+  thesis-runc VM is up (vulnerable runc 1.1.11 / CVE-2024-21626, ptrace_scope=0).
+  Build images and bring up the lab with:
+    limactl shell thesis-runc -- bash /lab/scripts/lab.sh build

@@ -1,0 +1,82 @@
+# Lima VM for the DirtyPipe (CVE-2022-0847) escape scenario — NATIVE arm64.
+# This VM IS the "host" the attacker tries to escape to. A successful escape
+# compromises only this disposable VM, never macOS.
+#
+# DirtyPipe is a KERNEL bug (vulnerable 5.8 <= kernel < 5.15.25 / 5.16.11 / 5.10.102) and no
+# vulnerable arm64 cloud/mainline kernel is downloadable, so we BUILD vanilla Linux 5.15.24
+# (the last release before the 5.15.25 fix) from source on a normal jammy arm64 image. Built
+# native under Apple `vz` (fast), and episodes then run at near-native speed (no emulation).
+# Build is trimmed for speed: based on the running kernel's config, localmodconfig strips it
+# to only loaded modules (keeps the virtio drivers vz needs to boot), DEBUG_INFO off, and the
+# Ubuntu cert keys (which break a vanilla build) cleared. 5.15.24 outranks the stock 5.15.0
+# in GRUB, so it becomes the default boot entry after update-grub.
+#
+# Start:  limactl start --name=thesis-dirtypipe lima/lima-dirtypipe.yaml   (provisioning BUILDS the kernel — ~15-25 min)
+# Reboot into it: limactl stop thesis-dirtypipe && limactl start thesis-dirtypipe
+# Verify: limactl shell thesis-dirtypipe -- uname -r   # expect 5.15.24
+
+vmType: vz
+arch: aarch64
+cpus: 4
+memory: "6GiB"
+disk: "30GiB"
+
+images:
+  - location: "https://cloud-images.ubuntu.com/releases/22.04/release/ubuntu-22.04-server-cloudimg-arm64.img"
+    arch: "aarch64"
+
+mounts:
+  - location: "/Users/markoerdelji/Documents/thesisv2"
+    mountPoint: "/lab"
+    writable: false
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get install -y docker.io python3-pip auditd audispd-plugins jq curl xxd \
+        build-essential flex bison libssl-dev libelf-dev bc libncurses-dev rsync cpio kmod
+      systemctl enable --now docker
+
+      echo 'kernel.yama.ptrace_scope = 0' > /etc/sysctl.d/99-thesis-ptrace.conf
+      sysctl -w kernel.yama.ptrace_scope=0
+
+      systemctl enable --now auditd || true
+      cat > /etc/audit/rules.d/thesis.rules <<'EOF'
+      -a always,exit -F arch=b64 -S fork -S vfork -S clone -S execve -k thesis_proc
+      -a always,exit -F arch=b64 -S openat -F dir=/proc -F perm=r -k thesis_procmem
+      EOF
+      augenrules --load 2>/dev/null || auditctl -R /etc/audit/rules.d/thesis.rules 2>/dev/null || true
+
+      # --- Build vanilla 5.15.24 from source (vulnerable to DirtyPipe) ---
+      cd /usr/src
+      curl -fsSLO https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-5.15.24.tar.xz
+      tar xf linux-5.15.24.tar.xz
+      cd linux-5.15.24
+      cp "/boot/config-$(uname -r)" .config
+      yes "" | make localmodconfig            # strip to currently-loaded modules (fast + bootable)
+      scripts/config --disable DEBUG_INFO --disable DEBUG_INFO_BTF \
+                     --set-str SYSTEM_TRUSTED_KEYS "" --set-str SYSTEM_REVOCATION_KEYS ""
+      make olddefconfig
+      make -j"$(nproc)"
+      make modules_install
+      make install                            # installs vmlinuz/initrd + runs update-grub
+      # GRUB keeps the stock kernel as the top-level default and lists vanilla 5.15.24 under
+      # the Advanced submenu, so point GRUB_DEFAULT explicitly at it.
+      sed -i 's|^GRUB_DEFAULT=.*|GRUB_DEFAULT="Advanced options for Ubuntu>Ubuntu, with Linux 5.15.24"|' /etc/default/grub
+      update-grub
+      echo "BUILD_DONE: $(ls -1 /boot/vmlinuz-5.15.24* 2>/dev/null)"
+  - mode: user
+    script: |
+      #!/bin/bash
+      set -eux
+      sudo usermod -aG docker "$USER" || true
+
+message: |
+  thesis-dirtypipe VM is up (native arm64). REBOOT into the freshly-built vulnerable kernel:
+    limactl stop thesis-dirtypipe && limactl start thesis-dirtypipe
+    limactl shell thesis-dirtypipe -- uname -r     # expect 5.15.24
+  Then build images: limactl shell thesis-dirtypipe -- bash /lab/scripts/lab.sh build
