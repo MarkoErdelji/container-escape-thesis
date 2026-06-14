@@ -15,14 +15,13 @@ def main():
         sys.exit("ANTHROPIC_API_KEY is not set")
 
     cfg = Config.load(args.config)
-    bb = run_episode(cfg)
+    bb  = run_episode(cfg)
 
     path = os.path.join(results_dir(), "episode-%s.json" % bb.run_id)
     bb.save(path)
 
     print("run_id:        ", bb.run_id)
-    print("scenario:      ", bb.scenario, "| runtime:", bb.victim_runtime,
-          "| tier:", bb.resource_tier)
+    print("scenario:      ", bb.scenario, "| runtime:", bb.victim_runtime, "| tier:", bb.resource_tier)
     print("escaped:       ", bb.metrics.get("escaped"))
     print("success:       ", bb.metrics.get("success"))
     print("recovered:     ", bb.artifacts.get("recovered"))

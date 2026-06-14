@@ -45,8 +45,8 @@ provision:
         build-essential flex bison libssl-dev libelf-dev bc libncurses-dev rsync cpio kmod
       systemctl enable --now docker
 
-      echo 'kernel.yama.ptrace_scope = 0' > /etc/sysctl.d/99-thesis-ptrace.conf
-      sysctl -w kernel.yama.ptrace_scope=0
+      echo 'kernel.yama.ptrace_scope = 1' > /etc/sysctl.d/99-thesis-ptrace.conf
+      sysctl -w kernel.yama.ptrace_scope=1
 
       systemctl enable --now auditd || true
       printf '%s\n' \

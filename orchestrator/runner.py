@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS episodes (
 """
 
 
-def record(db, bb):
+def _record(db, bb):
     m = bb.metrics
     db.execute(
         "INSERT OR REPLACE INTO episodes VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -35,15 +35,14 @@ def main():
     args = ap.parse_args()
 
     cfg = Config.load(args.config)
-    db = sqlite3.connect(os.path.join(results_dir(), "results.sqlite"))
+    db  = sqlite3.connect(os.path.join(results_dir(), "results.sqlite"))
     db.executescript(DDL)
     for i in range(args.episodes):
         print("episode %d/%d ..." % (i + 1, args.episodes))
         bb = run_episode(cfg)
-        record(db, bb)
+        _record(db, bb)
         bb.save(os.path.join(results_dir(), "episode-%s.json" % bb.run_id))
-        print("  success=%s escaped=%s" % (bb.metrics.get("success"),
-                                           bb.metrics.get("escaped")))
+        print("  success=%s escaped=%s" % (bb.metrics.get("success"), bb.metrics.get("escaped")))
     db.close()
 
 

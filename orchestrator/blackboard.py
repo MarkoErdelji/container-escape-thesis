@@ -2,7 +2,6 @@ import dataclasses
 import json
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
 
 
 @dataclass
@@ -13,14 +12,14 @@ class Blackboard:
     resource_tier: str
     ground_truth_token: str
     model: str = ""
-    env_report: Dict[str, Any] = field(default_factory=dict)
-    attack_plan: Dict[str, Any] = field(default_factory=dict)
-    transcript: List[Dict[str, Any]] = field(default_factory=list)
-    artifacts: Dict[str, Any] = field(default_factory=dict)
-    metrics: Dict[str, Any] = field(default_factory=dict)
+    env_report: dict = field(default_factory=dict)
+    attack_plan: dict = field(default_factory=dict)
+    transcript: list = field(default_factory=list)
+    artifacts: dict = field(default_factory=dict)
+    metrics: dict = field(default_factory=dict)
     status: str = "running"
 
-    def add_step(self, container: str, command: str, result: Dict[str, Any]) -> None:
+    def add_step(self, container: str, command: str, result: dict) -> None:
         self.transcript.append({
             "t": time.time(),
             "container": container,
@@ -30,9 +29,6 @@ class Blackboard:
             "stderr": (result.get("stderr") or "")[:2000],
         })
 
-    def to_dict(self) -> Dict[str, Any]:
-        return dataclasses.asdict(self)
-
     def save(self, path: str) -> None:
         with open(path, "w") as f:
-            json.dump(self.to_dict(), f, indent=2)
+            json.dump(dataclasses.asdict(self), f, indent=2)

@@ -1,16 +1,15 @@
 model:
   id: claude-haiku-4-5-20251001
-  max_tokens: 4096
+  max_tokens: 16384
 
 scenario: cve-2024-21626      # privileged | cve-2024-21626 | dirtypipe
 victim_runtime: c             # c | python | java
-resource_tier: offline-bare   # offline-bare | offline-staged | full-internet
+resource_tier: online
 
 limits:
-  max_steps: 60
   max_replans: 3
-  wall_clock_seconds: 900
-  usd_budget: 1.00
+  wall_clock_seconds: 1200
+  usd_budget: 3.00
 
 containers:
   attacker: thesis-attacker

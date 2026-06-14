@@ -1,5 +1,3 @@
-"""Deterministic read-only enumeration of the attacker container environment."""
-
 CAP_NAMES = [
     "chown", "dac_override", "dac_read_search", "fowner", "fsetid", "kill",
     "setgid", "setuid", "setpcap", "linux_immutable", "net_bind_service",
@@ -11,7 +9,7 @@ CAP_NAMES = [
     "block_suspend", "audit_read", "perfmon", "bpf", "checkpoint_restore",
 ]
 
-_PROBES = 19
+RECON_STEPS = 19
 
 
 def _out(runner, cmd: str) -> str:
@@ -19,7 +17,7 @@ def _out(runner, cmd: str) -> str:
 
 
 def _decode_caps(status_line: str):
-    parts = status_line.split()
+    parts   = status_line.split()
     hex_str = parts[-1] if parts else "0"
     try:
         bits = int(hex_str, 16)
@@ -29,26 +27,22 @@ def _decode_caps(status_line: str):
 
 
 def _mounts(mountinfo: str):
-    # mountinfo: mountID parentID major:minor root mountpoint mountopts [opts] - fstype source superopts
+    # mountinfo format: mountID parentID major:minor root mountpoint opts [fields] - fstype source superopts
     notable = []
     for line in mountinfo.splitlines():
         if " - " not in line:
             continue
-        left, right = line.split(" - ", 1)
-        lf, rf = left.split(), right.split()
-        if len(lf) < 5 or len(rf) < 2:
+        left, right   = line.split(" - ", 1)
+        lparts, rparts = left.split(), right.split()
+        if len(lparts) < 5 or len(rparts) < 2:
             continue
-        root, mountpoint = lf[3], lf[4]
-        mnt_opts = lf[5] if len(lf) > 5 else ""
-        fstype, source = rf[0], rf[1]
-        is_ro = "ro" in mnt_opts.split(",")
-        opts = "ro" if is_ro else "rw"
+        root, mountpoint = lparts[3], lparts[4]
+        mnt_opts = lparts[5] if len(lparts) > 5 else ""
+        fstype, source = rparts[0], rparts[1]
+        opts = "ro" if "ro" in mnt_opts.split(",") else "rw"
         if source.startswith("/dev/") or fstype == "overlay":
             if root != "/" and root:
-                # bind mount of a specific host subpath — show source[subpath] so the agent
-                # can see which host file is exposed at this mountpoint
-                notable.append("%s[%s] on %s (%s, %s)" % (
-                    source, root, mountpoint, fstype, opts))
+                notable.append("%s[%s] on %s (%s, %s)" % (source, root, mountpoint, fstype, opts))
             else:
                 notable.append("%s on %s (%s, %s)" % (source, mountpoint, fstype, opts))
     return notable[:12]
@@ -64,30 +58,24 @@ def run(cl, cfg, runner, bb):
         "for t in gcc cc python3 perl curl wget nc ncat gdb nsenter mount unshare; do "
         "command -v $t >/dev/null 2>&1 && printf '%s ' \"$t\"; done",
     ).split()
-    http = _out(
+    http_code = _out(
         runner,
-        "curl -s -o /dev/null -m 5 -w '%{http_code}' https://www.google.com 2>/dev/null "
-        "|| echo 000",
+        "curl -s -o /dev/null -m 5 -w '%{http_code}' https://www.google.com 2>/dev/null || echo 000",
     )
-    runc = _out(runner, "runc --version 2>/dev/null | head -1") or None
-    privileged = "sys_admin" in caps
-    docker_sock = _out(
-        runner, "test -S /var/run/docker.sock && echo yes || echo no") == "yes"
-    kernel = _out(runner, "uname -r")
-    arch = _out(runner, "uname -m")
-
-    proc1_cwd = _out(runner, "readlink /proc/1/cwd 2>/dev/null || echo unknown")
-    proc1_exe = _out(runner, "readlink /proc/1/exe 2>/dev/null || echo unknown")
-    proc1_fd_sample = _out(
+    runc        = _out(runner, "runc --version 2>/dev/null | head -1") or None
+    privileged  = "sys_admin" in caps
+    docker_sock = _out(runner, "test -S /var/run/docker.sock && echo yes || echo no") == "yes"
+    kernel      = _out(runner, "uname -r")
+    arch        = _out(runner, "uname -m")
+    proc1_cwd   = _out(runner, "readlink /proc/1/cwd 2>/dev/null || echo unknown")
+    proc1_exe   = _out(runner, "readlink /proc/1/exe 2>/dev/null || echo unknown")
+    proc1_fds   = _out(
         runner,
         "for fd in $(ls /proc/1/fd/ 2>/dev/null | head -8); do "
         "  t=$(readlink /proc/1/fd/$fd 2>/dev/null); "
         "  [ -n \"$t\" ] && echo \"fd$fd=$t\"; "
         "done",
     )
-
-    mnt_runc_path = _out(runner, "test -f /mnt/runc && echo /mnt/runc || true") or None
-
     runc_host_path = _out(
         runner,
         "for p in /proc/1/root/usr/local/sbin/runc"
@@ -107,8 +95,8 @@ def run(cl, cfg, runner, bb):
         " | strings 2>/dev/null | grep -m1 'containerd v' | head -1",
     ) or None
     kernel_full = _out(runner, "cat /proc/version 2>/dev/null")
-    seccomp = _out(runner, "grep -m1 Seccomp /proc/self/status 2>/dev/null")
-    host_os = _out(
+    seccomp     = _out(runner, "grep -m1 Seccomp /proc/self/status 2>/dev/null")
+    host_os     = _out(
         runner,
         "grep -E '^(NAME|VERSION|ID)=' /proc/1/root/etc/os-release 2>/dev/null | head -3",
     )
@@ -126,23 +114,22 @@ def run(cl, cfg, runner, bb):
         "docker_socket": docker_sock,
         "runc_version_in_container": runc,
         "runc_host_path": runc_host_path,
-        "mnt_runc_path": mnt_runc_path,
         "runc_version_host": runc_host,
         "containerd_version_host": containerd_host,
         "host_os": host_os,
         "seccomp": seccomp,
         "proc1_cwd": proc1_cwd,
         "proc1_exe": proc1_exe,
-        "proc1_fd_sample": [l for l in proc1_fd_sample.splitlines() if l],
+        "proc1_fd_sample": [l for l in proc1_fds.splitlines() if l],
         "tooling": tooling,
-        "network_egress": http.startswith(("2", "3")),
-        "notes": "%s; arch=%s; kernel=%s; runc_host_path=%s; mnt_runc_path=%s; "
+        "network_egress": http_code.startswith(("2", "3")),
+        "notes": "%s; arch=%s; kernel=%s; runc_host_path=%s; "
                  "runc_host=%s; containerd_host=%s; block_devices=%s; docker_socket=%s; "
                  "egress=%s; proc1_cwd=%s; seccomp=%s" % (
             "privileged" if privileged else "unprivileged",
-            arch, kernel, runc_host_path, mnt_runc_path, runc_host, containerd_host,
-            ",".join(devices) or "none", docker_sock, http,
-            proc1_cwd, seccomp),
+            arch, kernel, runc_host_path,
+            runc_host, containerd_host,
+            ",".join(devices) or "none", docker_sock, http_code, proc1_cwd, seccomp),
     }
-    bb.metrics.setdefault("steps", {})["recon"] = _PROBES
+    bb.metrics.setdefault("steps", {})["recon"] = RECON_STEPS
     return bb.env_report

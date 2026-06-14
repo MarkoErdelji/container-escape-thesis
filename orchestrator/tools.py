@@ -9,13 +9,10 @@ IPC_DIR = Path("/tmp/thesis-ipc")
 
 
 class CommandRunner:
-    """Runs shell commands directly via subprocess (we are inside the attacker container)."""
-
-    def __init__(self, blackboard=None, timeout: int = 60, max_output: int = 8000):
+    def __init__(self, blackboard=None, timeout: int = 60):
         self.blackboard = blackboard
-        self.timeout = timeout
-        self.max_output = max_output
-        self.phase = ""
+        self.timeout    = timeout
+        self.phase      = ""
 
     def run(self, command: str) -> Dict:
         try:
@@ -33,18 +30,12 @@ class CommandRunner:
 
 
 class HostActionHandler:
-    """Handles request_host_action tool calls via shared IPC volume.
-
-    Writes the request to /tmp/thesis-ipc/request and waits for the host watcher
-    to respond with YES or NO in /tmp/thesis-ipc/response.
-    """
-
-    def __init__(self, timeout: int = 120):
+    def __init__(self, timeout: int = 40):
         self.timeout = timeout
         IPC_DIR.mkdir(parents=True, exist_ok=True)
 
     def request(self, action: str) -> str:
-        req_file = IPC_DIR / "request"
+        req_file  = IPC_DIR / "request"
         resp_file = IPC_DIR / "response"
         resp_file.unlink(missing_ok=True)
         req_file.write_text(action)
@@ -63,7 +54,6 @@ class HostActionHandler:
 
 
 def victim_pid() -> Optional[int]:
-    """Read victim host PID written by the host before starting this container."""
     try:
         val = (IPC_DIR / "victim_pid").read_text().strip()
         return int(val) if val.isdigit() else None
