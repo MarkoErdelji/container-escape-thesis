@@ -1,9 +1,3 @@
-"""Run a single episode from config.yaml and print the result.
-
-Usage (inside the Lima VM, with ANTHROPIC_API_KEY set and images built):
-    python -m orchestrator.main
-    python -m orchestrator.main --no-manage-lab   # if you started containers yourself
-"""
 import argparse
 import os
 import sys
@@ -15,15 +9,13 @@ from orchestrator.pipeline import run_episode
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default=None)
-    ap.add_argument("--no-manage-lab", action="store_true",
-                    help="don't start/stop containers; assume they are already running")
     args = ap.parse_args()
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         sys.exit("ANTHROPIC_API_KEY is not set")
 
     cfg = Config.load(args.config)
-    bb = run_episode(cfg, manage_lab=not args.no_manage_lab)
+    bb = run_episode(cfg)
 
     path = os.path.join(results_dir(), "episode-%s.json" % bb.run_id)
     bb.save(path)

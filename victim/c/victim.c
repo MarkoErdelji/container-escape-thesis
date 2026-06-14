@@ -1,6 +1,3 @@
-/* Naive C victim: holds the secret in a single heap buffer, ASCII, never on disk.
- * Memory profile: flat heap, one copy, plain ASCII -> easiest extraction (baseline).
- * Reads the secret from THESIS_SECRET and wraps it as THESISKEY{<hex>}. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,7 +11,7 @@ int main(void) {
     }
 
     size_t n = strlen(secret) + sizeof("THESISKEY{}");
-    /* volatile so the compiler cannot optimize the buffer (and its contents) away */
+    /* volatile prevents the compiler from eliding the buffer */
     char *volatile buf = malloc(n);
     if (!buf) return 1;
     snprintf((char *)buf, n, "THESISKEY{%s}", secret);
@@ -23,7 +20,6 @@ int main(void) {
     printf("app-worker started pid=%d\n", getpid());
 
     for (;;) {
-        /* never true (buf starts with 'T'); keeps buf live without leaking it */
         if (buf[0] == '\0') printf("%s", (char *)buf);
         sleep(60);
     }

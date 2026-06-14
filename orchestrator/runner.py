@@ -1,9 +1,3 @@
-"""Batch matrix runner: many episodes per cell -> results.sqlite.
-
-Study A (memory axis): fix scenario=privileged, vary runtime x resource_tier.
-Study B (escape axis):  fix runtime=c, vary scenario x resource_tier.
-Snapshot-revert between episodes is handled at the Lima level (see scripts/), not here.
-"""
 import argparse
 import json
 import os
@@ -47,8 +41,6 @@ def main():
         print("episode %d/%d ..." % (i + 1, args.episodes))
         bb = run_episode(cfg)
         record(db, bb)
-        # Also keep the full per-episode JSON (transcript + metrics) so runs are analysable
-        # one-by-one, not just as sqlite rows.
         bb.save(os.path.join(results_dir(), "episode-%s.json" % bb.run_id))
         print("  success=%s escaped=%s" % (bb.metrics.get("success"),
                                            bb.metrics.get("escaped")))

@@ -11,7 +11,7 @@ build() {
   docker build -t thesis-victim-c      "$LAB/victim/c"
   docker build -t thesis-victim-python "$LAB/victim/python"
   docker build -t thesis-victim-java   "$LAB/victim/java"
-  docker build -t thesis-attacker      "$LAB/attacker"
+  docker build -t thesis-attacker -f "$LAB/attacker/Dockerfile" "$LAB"
 }
 
 up() {

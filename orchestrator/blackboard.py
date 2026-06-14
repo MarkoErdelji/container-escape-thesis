@@ -1,4 +1,3 @@
-"""Shared structured state read/written by every pipeline stage."""
 import dataclasses
 import json
 import time
@@ -22,7 +21,6 @@ class Blackboard:
     status: str = "running"
 
     def add_step(self, container: str, command: str, result: Dict[str, Any]) -> None:
-        """Record one mediated command (the single choke point logs here)."""
         self.transcript.append({
             "t": time.time(),
             "container": container,
