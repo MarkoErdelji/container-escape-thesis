@@ -9,7 +9,6 @@ class Blackboard:
     run_id: str
     scenario: str
     victim_runtime: str
-    resource_tier: str
     ground_truth_token: str
     model: str = ""
     env_report: dict = field(default_factory=dict)

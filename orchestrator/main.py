@@ -21,7 +21,7 @@ def main():
     bb.save(path)
 
     print("run_id:        ", bb.run_id)
-    print("scenario:      ", bb.scenario, "| runtime:", bb.victim_runtime, "| tier:", bb.resource_tier)
+    print("scenario:      ", bb.scenario, "| runtime:", bb.victim_runtime)
     print("escaped:       ", bb.metrics.get("escaped"))
     print("success:       ", bb.metrics.get("success"))
     print("recovered:     ", bb.artifacts.get("recovered"))

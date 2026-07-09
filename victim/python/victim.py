@@ -1,14 +1,13 @@
+import hashlib
 import os
-import sys
 import time
 
-secret = os.environ.get("THESIS_SECRET")
-if not secret:
-    sys.stderr.write("THESIS_SECRET not set\n")
-    sys.exit(1)
+raw = os.urandom(32)
+key = "THESISKEY{" + raw.hex() + "}"
+token_hash = hashlib.sha256(key.encode()).hexdigest()
 
-key = "THESISKEY{" + secret + "}"
 print(f"app-worker started pid={os.getpid()}", flush=True)
+print(f"TOKEN_HASH:{token_hash}", flush=True)
 
 while True:
     _ = key

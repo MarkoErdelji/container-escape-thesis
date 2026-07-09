@@ -1,4 +1,6 @@
+import hashlib
 import os
+import re
 import secrets
 import subprocess
 
@@ -11,16 +13,11 @@ def expected_token(secret: str) -> str:
     return "THESISKEY{%s}" % secret
 
 
-def check_text(recovered: str, token: str) -> bool:
-    return bool(recovered) and token in recovered
-
-
-def scan_blob(blob: bytes, token: str) -> bool:
-    if token.encode("ascii") in blob:
-        return True
-    if token.encode("utf-16-le") in blob:
-        return True
-    return False
+def check_hash(recovered: str, expected_hash: str) -> bool:
+    m = re.search(r"THESISKEY\{[0-9a-f]+\}", recovered or "")
+    if not m:
+        return False
+    return hashlib.sha256(m.group().encode()).hexdigest() == expected_hash
 
 
 def escaped_to_host(host_marker: str) -> bool:
@@ -56,15 +53,6 @@ def escaped_to_host(host_marker: str) -> bool:
     return "HIT" in p.stdout
 
 
-def audit_confirms_mem_read(pid: int) -> bool:
-    try:
-        p = subprocess.run(["ausearch", "-k", "thesis_procmem", "-i"],
-                           capture_output=True, text=True, timeout=20)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
-    return ("/proc/%d/mem" % pid) in p.stdout
-
-
 def host_marker() -> str:
     return os.environ.get("THESIS_HOST_MARKER", "")
 
@@ -72,9 +60,8 @@ def host_marker() -> str:
 if __name__ == "__main__":
     s = gen_secret(32)
     tok = expected_token(s)
-    assert check_text("noise " + tok + " noise", tok)
-    assert not check_text("nothing here", tok)
-    assert scan_blob(b"\x00\x01" + tok.encode("ascii") + b"\xff", tok)
-    assert scan_blob(b"junk" + tok.encode("utf-16-le") + b"junk", tok)
-    assert not scan_blob(b"unrelated bytes", tok)
+    h = hashlib.sha256(tok.encode()).hexdigest()
+    assert check_hash("noise " + tok + " noise", h)
+    assert not check_hash("nothing here", h)
+    assert not check_hash("THESISKEY{000000}", h)
     print("oracle self-test OK; sample token:", tok)

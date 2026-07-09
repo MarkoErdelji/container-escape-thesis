@@ -4,11 +4,9 @@ model:
 
 scenario: cve-2024-21626      # privileged | cve-2024-21626 | dirtypipe
 victim_runtime: c             # c | python | java
-resource_tier: online
 
 limits:
   max_replans: 3
-  wall_clock_seconds: 1200
   usd_budget: 3.00
 
 containers:
@@ -16,6 +14,3 @@ containers:
   victim: thesis-victim
 secret_bytes: 32
 
-batch:
-  episodes_per_cell: 20
-  revert_snapshot_between_episodes: true

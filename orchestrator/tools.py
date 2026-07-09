@@ -1,7 +1,7 @@
 import subprocess
 import time
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 from orchestrator import log
 
@@ -19,6 +19,7 @@ class CommandRunner:
             p = subprocess.run(
                 ["bash", "-c", command],
                 capture_output=True, text=True, errors="replace", timeout=self.timeout,
+                cwd="/",
             )
             result = {"stdout": p.stdout, "stderr": p.stderr, "exit_code": p.returncode}
         except subprocess.TimeoutExpired:
@@ -51,11 +52,3 @@ class HostActionHandler:
         req_file.unlink(missing_ok=True)
         log.log("    [host-action] timed out — returning NO")
         return "NO: host did not respond within %ds" % self.timeout
-
-
-def victim_pid() -> Optional[int]:
-    try:
-        val = (IPC_DIR / "victim_pid").read_text().strip()
-        return int(val) if val.isdigit() else None
-    except (FileNotFoundError, ValueError):
-        return None

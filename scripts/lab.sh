@@ -15,10 +15,15 @@ build() {
 }
 
 up() {
-  local secret="${THESIS_SECRET:-$(head -c16 /dev/urandom | xxd -p | tr -d '\n')}"
-  echo "ground-truth token: THESISKEY{$secret}"
   docker rm -f "$VICTIM" "$ATTACKER" 2>/dev/null || true
-  docker run -d --name "$VICTIM" -e THESIS_SECRET="$secret" "thesis-victim-$RUNTIME"
+  docker run -d --name "$VICTIM" "thesis-victim-$RUNTIME"
+  local token_hash=""
+  for i in $(seq 1 15); do
+    token_hash=$(docker logs "$VICTIM" 2>/dev/null | grep '^TOKEN_HASH:' | head -1 | sed 's/^TOKEN_HASH://')
+    [ -n "$token_hash" ] && break
+    sleep 1
+  done
+  echo "victim token hash: $token_hash"
   docker run -d --name "$ATTACKER" --privileged thesis-attacker
   echo "victim host PID: $(docker inspect -f '{{.State.Pid}}' "$VICTIM")"
   echo "attacker shell:  docker exec -it $ATTACKER bash"

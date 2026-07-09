@@ -1,3 +1,5 @@
+import os as _os
+
 CAP_NAMES = [
     "chown", "dac_override", "dac_read_search", "fowner", "fsetid", "kill",
     "setgid", "setuid", "setpcap", "linux_immutable", "net_bind_service",
@@ -8,8 +10,6 @@ CAP_NAMES = [
     "setfcap", "mac_override", "mac_admin", "syslog", "wake_alarm",
     "block_suspend", "audit_read", "perfmon", "bpf", "checkpoint_restore",
 ]
-
-RECON_STEPS = 19
 
 
 def _out(runner, cmd: str) -> str:
@@ -27,7 +27,6 @@ def _decode_caps(status_line: str):
 
 
 def _mounts(mountinfo: str):
-    # mountinfo format: mountID parentID major:minor root mountpoint opts [fields] - fstype source superopts
     notable = []
     for line in mountinfo.splitlines():
         if " - " not in line:
@@ -48,7 +47,19 @@ def _mounts(mountinfo: str):
     return notable[:12]
 
 
+def _self_cwd() -> str:
+    # subprocess.run uses cwd=/; read it directly instead
+    try:
+        return _os.getcwd()
+    except OSError:
+        try:
+            return _os.readlink("/proc/self/cwd")
+        except Exception:
+            return "unresolvable"
+
+
 def run(cl, cfg, runner, bb):
+    self_cwd    = _self_cwd()
     cap_hex, caps = _decode_caps(_out(runner, "grep -m1 CapEff /proc/self/status"))
     devices = _out(
         runner, "ls -la /dev 2>/dev/null | awk '$1 ~ /^b/ {print $NF}' | tr '\\n' ' '"
@@ -58,11 +69,10 @@ def run(cl, cfg, runner, bb):
         "for t in gcc cc python3 perl curl wget nc ncat gdb nsenter mount unshare; do "
         "command -v $t >/dev/null 2>&1 && printf '%s ' \"$t\"; done",
     ).split()
-    http_code = _out(
+    http_code   = _out(
         runner,
         "curl -s -o /dev/null -m 5 -w '%{http_code}' https://www.google.com 2>/dev/null || echo 000",
     )
-    runc        = _out(runner, "runc --version 2>/dev/null | head -1") or None
     privileged  = "sys_admin" in caps
     docker_sock = _out(runner, "test -S /var/run/docker.sock && echo yes || echo no") == "yes"
     kernel      = _out(runner, "uname -r")
@@ -71,65 +81,32 @@ def run(cl, cfg, runner, bb):
     proc1_exe   = _out(runner, "readlink /proc/1/exe 2>/dev/null || echo unknown")
     proc1_fds   = _out(
         runner,
-        "for fd in $(ls /proc/1/fd/ 2>/dev/null | head -8); do "
+        "for fd in $(ls /proc/1/fd/ 2>/dev/null | head -20); do "
         "  t=$(readlink /proc/1/fd/$fd 2>/dev/null); "
         "  [ -n \"$t\" ] && echo \"fd$fd=$t\"; "
         "done",
     )
-    runc_host_path = _out(
-        runner,
-        "for p in /proc/1/root/usr/local/sbin/runc"
-        "         /proc/1/root/usr/sbin/runc"
-        "         /proc/1/root/usr/bin/runc; do"
-        "  [ -f \"$p\" ] && echo \"$p\" && break;"
-        " done",
-    ) or None
-    runc_host = _out(
-        runner,
-        "p=%s; [ -n \"$p\" ] && strings \"$p\" 2>/dev/null | grep -m1 'runc version'" % (
-            runc_host_path or ""),
-    ) or None
-    containerd_host = _out(
-        runner,
-        "head -c 131072 /proc/1/root/usr/bin/containerd 2>/dev/null"
-        " | strings 2>/dev/null | grep -m1 'containerd v' | head -1",
-    ) or None
     kernel_full = _out(runner, "cat /proc/version 2>/dev/null")
     seccomp     = _out(runner, "grep -m1 Seccomp /proc/self/status 2>/dev/null")
-    host_os     = _out(
-        runner,
-        "grep -E '^(NAME|VERSION|ID)=' /proc/1/root/etc/os-release 2>/dev/null | head -3",
-    )
+    mountinfo   = _out(runner, "cat /proc/self/mountinfo 2>/dev/null")
 
     bb.env_report = {
-        "containerized": _out(runner, "test -f /.dockerenv && echo yes || echo no") == "yes",
-        "privileged": privileged,
-        "capabilities": caps,
-        "cap_eff": cap_hex,
-        "kernel": kernel,
-        "kernel_full": kernel_full,
-        "arch": arch,
-        "mounts": _mounts(_out(runner, "cat /proc/self/mountinfo 2>/dev/null")),
-        "devices": devices,
-        "docker_socket": docker_sock,
-        "runc_version_in_container": runc,
-        "runc_host_path": runc_host_path,
-        "runc_version_host": runc_host,
-        "containerd_version_host": containerd_host,
-        "host_os": host_os,
-        "seccomp": seccomp,
-        "proc1_cwd": proc1_cwd,
-        "proc1_exe": proc1_exe,
+        "containerized":   _out(runner, "test -f /.dockerenv && echo yes || echo no") == "yes",
+        "privileged":      privileged,
+        "capabilities":    caps,
+        "cap_eff":         cap_hex,
+        "kernel":          kernel,
+        "kernel_full":     kernel_full,
+        "arch":            arch,
+        "mounts":          _mounts(mountinfo),
+        "devices":         devices,
+        "docker_socket":   docker_sock,
+        "seccomp":         seccomp,
+        "self_cwd":        self_cwd,
+        "proc1_cwd":       proc1_cwd,
+        "proc1_exe":       proc1_exe,
         "proc1_fd_sample": [l for l in proc1_fds.splitlines() if l],
-        "tooling": tooling,
-        "network_egress": http_code.startswith(("2", "3")),
-        "notes": "%s; arch=%s; kernel=%s; runc_host_path=%s; "
-                 "runc_host=%s; containerd_host=%s; block_devices=%s; docker_socket=%s; "
-                 "egress=%s; proc1_cwd=%s; seccomp=%s" % (
-            "privileged" if privileged else "unprivileged",
-            arch, kernel, runc_host_path,
-            runc_host, containerd_host,
-            ",".join(devices) or "none", docker_sock, http_code, proc1_cwd, seccomp),
+        "tooling":         tooling,
+        "network_egress":  http_code.startswith(("2", "3")),
     }
-    bb.metrics.setdefault("steps", {})["recon"] = RECON_STEPS
     return bb.env_report
