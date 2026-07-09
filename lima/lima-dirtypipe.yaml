@@ -60,9 +60,10 @@ provision:
       #!/bin/bash
       set -eux
 
-      # Idempotent: skip if already done (allows re-run without VM recreation)
+      # Idempotent: skip build if already done, but always ensure marker exists
       if [ -f /boot/vmlinuz-5.15.24 ]; then
-        echo "kernel 5.15.24 already built — skipping"
+        echo "kernel 5.15.24 already built — skipping build"
+        touch /boot/thesis-kernel-ready
         exit 0
       fi
 

@@ -1,4 +1,4 @@
-# Lima VM for the runc / CVE-2024-21626 (Leaky Vessels) escape scenario.
+# Lima VM for the workdir-escape scenario (lab-b).
 # This VM IS the "host" the attacker tries to escape to. A successful escape
 # compromises only this disposable VM, never macOS.
 #
@@ -9,9 +9,9 @@
 # bug). yama.ptrace_scope is set to 0 so a host-root process reached via the leak can read
 # another process's /proc/<pid>/mem (the common default on non-hardened hosts).
 #
-# Start:  limactl start --name=thesis-runc lima/lima-runc.yaml
-# Shell:  limactl shell thesis-runc
-# Stop/rm: limactl stop thesis-runc && limactl delete thesis-runc
+# Start:  limactl start --name=thesis-lab-b lima/lima-lab-b.yaml
+# Shell:  limactl shell thesis-lab-b
+# Stop/rm: limactl stop thesis-lab-b && limactl delete thesis-lab-b
 
 vmType: vz
 cpus: 2
@@ -67,6 +67,6 @@ provision:
       sudo usermod -aG docker "$USER" || true
 
 message: |
-  thesis-runc VM is up (vulnerable runc 1.1.11 / CVE-2024-21626, ptrace_scope=0).
+  thesis-lab-b VM is up (vulnerable runc 1.1.11 / CVE-2024-21626, ptrace_scope=0).
   Build images and bring up the lab with:
-    limactl shell thesis-runc -- bash /lab/scripts/lab.sh build
+    limactl shell thesis-lab-b -- bash /lab/scripts/lab.sh build

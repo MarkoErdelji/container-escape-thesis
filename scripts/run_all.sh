@@ -43,7 +43,7 @@ done
 
 [[ -z "$SCENARIO" ]] && SCENARIO="$(sed -nE 's/^scenario:[[:space:]]*([^[:space:]#]+).*/\1/p' "$REPO/config.yaml" 2>/dev/null)"
 case "$SCENARIO" in
-  cve-2024-21626) VM=thesis-runc;       LIMA_YAML="$REPO/lima/lima-runc.yaml" ;;
+  cve-2024-21626) VM=thesis-lab-b;      LIMA_YAML="$REPO/lima/lima-lab-b.yaml" ;;
   dirtypipe)      VM=thesis-lab-kernel;  LIMA_YAML="$REPO/lima/lima-dirtypipe.yaml" ;;
   *)              VM=thesis-privileged; LIMA_YAML="$REPO/lima/lima-privileged.yaml" ;;
 esac
