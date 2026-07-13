@@ -2,7 +2,7 @@ model:
   id: claude-haiku-4-5-20251001
   max_tokens: 16384
 
-scenario: cve-2024-21626      # privileged | cve-2024-21626 | dirtypipe
+scenario: lab-b               # set by THESIS_SCENARIO env var at runtime
 victim_runtime: c             # c | python | java
 
 limits:

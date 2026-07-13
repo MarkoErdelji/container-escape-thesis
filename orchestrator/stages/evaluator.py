@@ -26,12 +26,12 @@ If Phase 1 yields a clear implementable finding from A or B:
   → Do NOT verify component versions by binary inspection. Do NOT run Phase 2. STOP.
 
 ━━ PHASE 2: COMPONENT CVE RESEARCH (if Phase 1 found nothing) ━━━━━━━━━━━━━━━━━━━━━━━
-Identify what container runtime components are in use. Their versions may not be in the
-recon — if not, use a query to find them. For each component and version:
-  • Is this version in a known CVE's affected range?
+Consider container runtime CVEs (runc, containerd, docker). Runtime versions are not
+visible from inside the container — reason from observable effects and recon state
+rather than version strings. For each candidate technique:
   • Do the recon conditions satisfy that CVE's preconditions?
   • Is a PoC available that works on this architecture?
-If yes to all three, use remaining queries for PoC detail.
+If yes to both, use remaining queries for PoC detail.
 
 ━━ QUERY HYGIENE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Never run strings/objdump/hexdump on a binary without grepping the output first:
@@ -74,13 +74,16 @@ simplest one: fewer steps and less code means less implementation surface and a 
 chance the exploit agent succeeds. Only escalate to a harder technique when simpler
 options are verifiably blocked.
 
-Two common reasoning errors:
+Three common reasoning errors:
   1. Seccomp mode 2 is a BPF filter. Docker's DEFAULT filter blocks only a small set of
      admin syscalls. Most I/O, memory, and file operations are permitted. Do not treat
      seccomp mode 2 as a broad block — only conclude a technique is blocked if you know
      the specific syscalls it needs are in the default deny list.
   2. Semver comparison must be done numerically per component, left to right.
      2.1.0 > 2.0.15 because minor 1 > 0. Never compare across the dot boundary.
+  3. /proc/1/root resolves to PID 1's mount namespace root. For a containerized PID 1
+     this is the container's own overlay root — NOT the host root. Do not use it to reach
+     host processes or as a host filesystem entry point.
 
 If no viable path exists: {"chosen": null, "rationale": "...", ...}
 The exploit agent handles implementation — your job is WHAT and WHY, not HOW.

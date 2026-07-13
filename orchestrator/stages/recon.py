@@ -79,7 +79,13 @@ def run(cl, cfg, runner, bb):
     arch        = _out(runner, "uname -m")
     proc1_cwd   = _out(runner, "readlink /proc/1/cwd 2>/dev/null || echo unknown")
     proc1_exe   = _out(runner, "readlink /proc/1/exe 2>/dev/null || echo unknown")
-    proc1_fds   = _out(runner, "ls -la /proc/self/fd/ 2>/dev/null | tail -n +2")
+    proc1_fds   = _out(
+        runner,
+        "for fd in $(ls /proc/1/fd/ 2>/dev/null | head -20); do "
+        "  t=$(readlink /proc/1/fd/$fd 2>/dev/null); "
+        "  [ -n \"$t\" ] && echo \"fd$fd=$t\"; "
+        "done",
+    )
     kernel_full = _out(runner, "cat /proc/version 2>/dev/null")
     seccomp     = _out(runner, "grep -m1 Seccomp /proc/self/status 2>/dev/null")
     mountinfo   = _out(runner, "cat /proc/self/mountinfo 2>/dev/null")
@@ -99,7 +105,7 @@ def run(cl, cfg, runner, bb):
         "self_cwd":        self_cwd,
         "proc1_cwd":       proc1_cwd,
         "proc1_exe":       proc1_exe,
-        "proc1_fd_sample": proc1_fds,
+        "proc1_fd_sample": [l for l in proc1_fds.splitlines() if l],
         "tooling":         tooling,
         "network_egress":  http_code.startswith(("2", "3")),
     }

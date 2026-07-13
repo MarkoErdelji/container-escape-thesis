@@ -2,12 +2,19 @@
 # This VM IS the "host" the attacker tries to escape to. A successful escape
 # compromises only this disposable VM, never macOS.
 #
-# It runs a deliberately VULNERABLE runc 1.1.11 (CVE-2024-21626 affects runc < 1.1.12).
-# We install the distro docker.io (a known-good docker/containerd, same as the privileged
-# VM) and just drop the old runc binary ahead of it in PATH — current docker+containerd run
-# fine against runc 1.1.11. The kernel/distro otherwise don't matter (it's a runc userspace
-# bug). yama.ptrace_scope is set to 0 so a host-root process reached via the leak can read
-# another process's /proc/<pid>/mem (the common default on non-hardened hosts).
+# CVE-2024-21626 (Leaky Vessels): runc < 1.1.12 leaks a host directory fd
+# into the container. Setting workdir=/proc/self/fd/N causes the container to
+# start with CWD on the host filesystem (runc resolves the path in host context).
+#
+# Requirements for the CVE to be reproducible:
+#  - runc 1.1.11 (vulnerable: does not close the leaked fd before exec)
+#  - containerd 1.7.12 (last release before the Jan-31-2024 CVE disclosure;
+#    1.7.13+ closes the fd on the containerd side before runc sees it;
+#    2.x additionally adds a time-namespace entry to OCI specs that runc 1.1.11
+#    cannot handle, causing every container start to error out)
+#
+# containerd 1.7.12 is NOT in any distro apt repo anymore, so we download the
+# official binary from GitHub and replace the distro containerd with it.
 #
 # Start:  limactl start --name=thesis-lab-b lima/lima-lab-b.yaml
 # Shell:  limactl shell thesis-lab-b
@@ -30,6 +37,11 @@ mounts:
     mountPoint: "/lab"
     writable: false
 
+# Disable Lima's built-in containerd/docker — we manage our own via apt.
+containerd:
+  system: false
+  user: false
+
 provision:
   - mode: system
     script: |
@@ -37,20 +49,31 @@ provision:
       set -eux
       export DEBIAN_FRONTEND=noninteractive
       apt-get update
+      # docker.io brings dockerd, docker CLI, containerd, runc — all from Ubuntu repos.
       apt-get install -y docker.io auditd audispd-plugins jq curl xxd python3-pip
-      systemctl enable --now docker
 
-      # Drop in the VULNERABLE runc 1.1.11. /usr/local/sbin is first in the service PATH, so
-      # containerd's runc shim picks it up; overwrite the distro paths too for good measure.
-      ARCH="$(dpkg --print-architecture)"   # arm64 / amd64 — matches the runc release asset
-      curl -fsSL -o /tmp/runc "https://github.com/opencontainers/runc/releases/download/v1.1.11/runc.$ARCH"
-      install -m0755 /tmp/runc /usr/local/sbin/runc
-      install -m0755 /tmp/runc /usr/local/bin/runc
+      ARCH="$(dpkg --print-architecture)"
+
+      # Replace the distro containerd with the official 1.7.12 binary (released 2024-01-14,
+      # 17 days before CVE-2024-21626 was disclosed). This version leaks the host directory fd
+      # into runc without closing it first, which is the prerequisite for the workdir escape.
+      mkdir -p /tmp/ct-extract
+      curl -fsSL "https://github.com/containerd/containerd/releases/download/v1.7.12/containerd-1.7.12-linux-${ARCH}.tar.gz" \
+        | tar -xz -C /tmp/ct-extract
+      systemctl stop containerd docker 2>/dev/null || true
+      install -m0755 /tmp/ct-extract/bin/containerd /usr/bin/containerd
+      install -m0755 /tmp/ct-extract/bin/containerd-shim-runc-v2 /usr/bin/containerd-shim-runc-v2
+
+      # Replace distro runc with the VULNERABLE runc 1.1.11.
+      curl -fsSL -o /tmp/runc "https://github.com/opencontainers/runc/releases/download/v1.1.11/runc.${ARCH}"
+      install -m0755 /tmp/runc /usr/sbin/runc
       install -m0755 /tmp/runc /usr/bin/runc
-      systemctl restart docker
+
+      systemctl enable --now docker
+      containerd --version    # must report 1.7.12
       runc --version | head -1   # must report 1.1.11
 
-      # Permissive ptrace so a host-root process (reached via the leak) can read sibling RAM.
+      # Permissive ptrace so a host-root process (reached via the fd leak) can read sibling RAM.
       echo 'kernel.yama.ptrace_scope = 0' > /etc/sysctl.d/99-thesis-ptrace.conf
       sysctl --system
 
@@ -67,6 +90,6 @@ provision:
       sudo usermod -aG docker "$USER" || true
 
 message: |
-  thesis-lab-b VM is up (vulnerable runc 1.1.11 / CVE-2024-21626, ptrace_scope=0).
+  thesis-lab-b VM is up (containerd 1.7.12 + runc 1.1.11 / CVE-2024-21626, ptrace_scope=0).
   Build images and bring up the lab with:
     limactl shell thesis-lab-b -- bash /lab/scripts/lab.sh build
