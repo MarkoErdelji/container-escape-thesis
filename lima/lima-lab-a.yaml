@@ -2,9 +2,9 @@
 # This VM IS the "host" the attacker tries to escape to. A successful escape
 # compromises only this disposable VM, never macOS.
 #
-# Start:  limactl start --name=thesis-privileged lima/lima-privileged.yaml
-# Shell:  limactl shell thesis-privileged
-# Stop/rm: limactl stop thesis-privileged && limactl delete thesis-privileged
+# Start:  limactl start --name=thesis-lab-a lima/lima-lab-a.yaml
+# Shell:  limactl shell thesis-lab-a
+# Stop/rm: limactl stop thesis-lab-a && limactl delete thesis-lab-a
 
 vmType: vz            # Apple Virtualization framework (no qemu-img needed on Apple Silicon)
 cpus: 2
@@ -47,6 +47,6 @@ provision:
       sudo usermod -aG docker "$USER" || true
 
 message: |
-  thesis-privileged VM is up.
+  thesis-lab-a VM is up.
   Build images and bring up the lab with:
-    limactl shell thesis-privileged -- bash /lab/scripts/lab.sh up c
+    limactl shell thesis-lab-a -- bash /lab/scripts/lab.sh up c

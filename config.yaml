@@ -2,7 +2,7 @@ model:
   id: claude-haiku-4-5-20251001
   max_tokens: 16384
 
-scenario: lab-b               # set by THESIS_SCENARIO env var at runtime
+scenario: lab-a               # set by THESIS_SCENARIO env var at runtime; lab-a/lab-b/lab-c
 victim_runtime: c             # c | python | java
 
 limits:
