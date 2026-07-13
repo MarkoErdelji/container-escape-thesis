@@ -13,9 +13,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY orchestrator/requirements.txt /tmp/orch-reqs.txt
 RUN pip3 install --no-cache-dir --break-system-packages -r /tmp/orch-reqs.txt
 
-# Copy staged exploit tools
-COPY attacker/exploits/ /opt/exploits/
-
 # Copy orchestrator and config
 COPY orchestrator/ /lab/orchestrator/
 COPY config.yaml /lab/config.yaml

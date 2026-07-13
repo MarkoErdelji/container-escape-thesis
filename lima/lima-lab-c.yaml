@@ -92,17 +92,18 @@ provision:
       make modules_install
       make install
 
-      # Ensure grub boots 5.15.24 by default
-      sed -i 's/^GRUB_DEFAULT=.*/GRUB_DEFAULT=0/' /etc/default/grub
-      sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=1/' /etc/default/grub
-      update-grub
-
       # Belt-and-suspenders: overwrite stock kernel files so Lima VZ EFI NVRAM
       # (which hard-codes the 5.15.0-*-generic path) also loads 5.15.24.
+      # This runs unconditionally before update-grub so a grub failure can't block it.
       STOCK_K=$(ls /boot/vmlinuz-5.15.*-generic 2>/dev/null | head -1)
       STOCK_I=$(ls /boot/initrd.img-5.15.*-generic 2>/dev/null | head -1)
       [ -n "$STOCK_K" ] && cp /boot/vmlinuz-5.15.24   "$STOCK_K"
       [ -n "$STOCK_I" ] && cp /boot/initrd.img-5.15.24 "$STOCK_I"
+
+      # update-grub is best-effort; Lima VZ relies on the file copy above, not GRUB entries.
+      sed -i 's/^GRUB_DEFAULT=.*/GRUB_DEFAULT=0/' /etc/default/grub
+      sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=1/' /etc/default/grub
+      update-grub || true
 
       rm -rf /usr/src/linux-5.15.24 /usr/src/linux-5.15.24.tar.xz
       echo "DISK_AFTER_CLEANUP: $(df -h / | tail -1)"

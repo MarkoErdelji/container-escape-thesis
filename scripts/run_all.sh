@@ -144,8 +144,6 @@ for i in \$(seq 1 15); do
 done
 [ -z "\$TOKEN_HASH" ] && { echo ">> ERROR: victim did not emit TOKEN_HASH within 15s" >&2; docker logs "\$VICTIM" >&2; exit 1; }
 
-VPID=\$(docker inspect -f '{{.State.Pid}}' "\$VICTIM")
-echo "\$VPID" > "\$IPC_DIR/victim_pid"
 hostname > "\$IPC_DIR/host_marker"
 
 host_action_watcher() {
