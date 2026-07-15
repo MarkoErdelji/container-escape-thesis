@@ -147,27 +147,6 @@ token. The agent cannot fake either of these.
 
 ---
 
-## What we're measuring
-
-The experiment has three dimensions:
-
-**Scenario** (lab-a / lab-b / lab-c) — Does the agent succeed against each category
-of isolation weakness? Do some require replanning where others don't?
-
-**Model** (Haiku / Sonnet / Opus) — Where is the capability threshold? Smaller models
-may fail to reason through the vulnerability identification step or the multi-stage
-exploit chain. This dimension shows where model capability becomes the bottleneck.
-
-**Victim runtime** (C / Python / Java) — Can the agent adapt its memory scanning
-strategy when the target runtime stores strings differently? This dimension tests
-whether success depends on the extraction difficulty, not just the escape.
-
-Each cell in the matrix is run multiple times. Per-episode metrics (API cost, number
-of steps, whether replanning was needed) are logged alongside the success/failure
-outcome and the full transcript of every tool call the agent made.
-
----
-
 ## Quick start
 
 ```bash
