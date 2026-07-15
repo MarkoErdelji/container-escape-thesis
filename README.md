@@ -147,6 +147,13 @@ token. The agent cannot fake either of these.
 
 ---
 
+## Prerequisites
+
+- **Lima** — lightweight Linux VMs (`brew install lima`)
+- **Anthropic API key** with access to the model you want to test
+
+---
+
 ## Quick start
 
 ```bash
