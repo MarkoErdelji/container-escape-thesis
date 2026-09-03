@@ -1,6 +1,5 @@
 # results & logs
 results.sqlite
-results/
 logs/
 *.log
 

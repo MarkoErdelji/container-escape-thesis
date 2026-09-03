@@ -10,4 +10,4 @@ FROM eclipse-temurin:21-jre
 COPY --from=build /src/AppWorker.class /app/AppWorker.class
 WORKDIR /app
 # THESIS_SECRET is injected at `docker run` time by the orchestrator.
-ENTRYPOINT ["java", "AppWorker"]
+ENTRYPOINT ["java", "-XX:-CompactStrings", "AppWorker"]

@@ -123,6 +123,39 @@ RUNTIME="${RUNTIME:-}"
 MODEL="${MODEL:-}"
 BUDGET="${BUDGET:-}"
 
+# ── per-episode host cleanup (prevent cross-episode contamination) ──
+echo ">> [cleanup] resetting host state..."
+
+# Reset kernel params the agent might have changed
+sudo sh -c 'echo core > /proc/sys/kernel/core_pattern' 2>/dev/null || true
+sudo sysctl -w kernel.yama.ptrace_scope=1 >/dev/null 2>&1 || true
+sudo sysctl -w kernel.randomize_va_space=2 >/dev/null 2>&1 || true
+sudo sysctl -w kernel.perf_event_paranoid=4 >/dev/null 2>&1 || true
+
+# Kill stray processes from previous episodes
+for stale_pid in \$(pgrep -f 'thesis|payload|exploit|memscan|app-worker' 2>/dev/null || true); do
+  sudo kill -9 "\$stale_pid" 2>/dev/null || true
+done
+
+# Remove cron jobs / at jobs the agent might have installed
+sudo rm -f /etc/cron.d/thesis* /etc/cron.d/escape* /etc/cron.d/pwn* 2>/dev/null || true
+sudo crontab -r 2>/dev/null || true
+
+# Remove LD_PRELOAD poisoning the agent might have set up
+sudo rm -f /etc/ld.so.preload 2>/dev/null || true
+sudo ldconfig 2>/dev/null || true
+
+# Docker cleanup — remove anything beyond our named containers
+docker rm -f "\$ATTACKER" "\$VICTIM" 2>/dev/null || true
+docker container prune -f >/dev/null 2>&1 || true
+docker volume prune -f >/dev/null 2>&1 || true
+docker network prune -f >/dev/null 2>&1 || true
+
+# Flush page cache (reset any DirtyPipe-poisoned pages)
+sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches' 2>/dev/null || true
+
+
+# Clean IPC and escape dirs
 rm -rf "\$IPC_DIR" && mkdir -p "\$IPC_DIR"
 
 sudo rm -rf /tmp/thesis-escape

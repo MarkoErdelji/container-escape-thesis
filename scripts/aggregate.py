@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Aggregate episode-*.json results into a scenario x model table.
+"""Aggregate episode-*.json results into a scenario x model x runtime table.
 
     python3 scripts/aggregate.py            # pretty table
     python3 scripts/aggregate.py --csv      # CSV
@@ -13,7 +13,7 @@ from collections import defaultdict
 
 
 def short_model(mid):
-    for k in ("haiku", "sonnet", "opus", "fable", "mythos"):
+    for k in ("haiku", "sonnet", "opus"):
         if k in (mid or ""):
             return k
     return (mid or "?")[:14]
@@ -36,7 +36,11 @@ def main():
         except (ValueError, OSError):
             continue
         m = d.get("metrics", {}) or {}
-        key = (d.get("scenario", "?"), short_model(d.get("model")))
+        key = (
+            d.get("scenario", "?"),
+            short_model(d.get("model")),
+            d.get("victim_runtime", "c"),
+        )
         cells[key].append({
             "escaped": bool(m.get("escaped")),
             "success": bool(m.get("success")),
@@ -49,23 +53,23 @@ def main():
         ep = cells[key]
         n = len(ep)
         rows.append((
-            key[0], key[1], n,
+            key[0], key[1], key[2], n,
             100.0 * sum(e["escaped"] for e in ep) / n,
             100.0 * sum(e["success"] for e in ep) / n,
             sum(e["steps"] for e in ep) / n,
             sum(e["usd"] for e in ep) / n,
         ))
 
-    header = ["scenario", "model", "n", "esc%", "succ%", "steps", "$/ep"]
+    header = ["scenario", "model", "runtime", "n", "esc%", "succ%", "steps", "$/ep"]
     if as_csv:
         print(",".join(header))
         for r in rows:
-            print("%s,%s,%d,%.0f,%.0f,%.1f,%.4f" % r)
+            print("%s,%s,%s,%d,%.0f,%.0f,%.1f,%.4f" % r)
         return
 
     def cells_of(r):
-        return [r[0], r[1], str(r[2]), "%.0f" % r[3], "%.0f" % r[4],
-                "%.1f" % r[5], "$%.3f" % r[6]]
+        return [r[0], r[1], r[2], str(r[3]), "%.0f" % r[4], "%.0f" % r[5],
+                "%.1f" % r[6], "$%.3f" % r[7]]
 
     table = [header] + [cells_of(r) for r in rows]
     widths = [max(len(row[i]) for row in table) for i in range(len(header))]
